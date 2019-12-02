@@ -1,0 +1,222 @@
+---
+title: "R Notebook"
+output: html_notebook
+author : "Kushin Mukherjee"
+---
+
+```{r message=FALSE, warning=FALSE}
+### load libraries
+library(runjags)
+library(coda)
+library(ggplot2)
+library(tidyverse)
+library(ggridges)
+```
+
+```{r}
+### Load in the data files
+
+anim_data<- read.csv('2010_animation_ratings.csv')
+house_data<- read.csv('house_prices.csv')
+```
+
+### Question 1.
+
+#### a) Prior Choices
+
+Looking at the data, there is some variation in spread (e.g.,movie 7 has high spread relative to the other 7 movies), but there is enough regularity that it makes sense to have a normal model for the data with the standard deviation $\sigma$ being shared between groups (movies).
+There is variation in where the mean ratings are centered for each movie so we assign priors for the means ratings for each group. Thus our overall model is a truncated normal (truncated below 0) to account for the fact that ratings cannot be negative.
+The group-specific means come from a truncated normal distribution (truncated below 0) with parameters mean =  $\mu$ and precision = $\tau$. We assign vague priors to $\mu$ and $\tau$.
+$\mu$ comes from a truncated normal distribution with mean = $\mu_0$ and sd = $\sd_0$, which are fixed values.
+$\tau$ comes from a gamma distribution with $\alpha$ = $a_t$ and $\beta$ = $b_t$
+
+We assign vague priors to the shared parameter $\sigma$ as well, which comes from a gamma distribution with $\alpha$ = $a_s$ and $\beta$ = $b_s$
+
+
+```{r}
+movie_ind<-as.factor(anim_data$Group_Number)
+rating<- anim_data$rating
+N<- length(rating)
+num_groups<- length(unique(anim_data$Group_Number))
+
+
+ggplot(data= data.frame(movie_ind= movie_ind, rating = rating), aes(rating, color= movie_ind)) + geom_density() 
+
+modelString <-"
+model {
+
+## likelihood
+for (i in 1:N){
+rating[i] ~ dnorm(mu_group[movie_ind[i]], precision)T(0,)
+}
+
+## priors
+for (j in 1:num_groups){
+mu_group[j] ~ dnorm(mu, inv_tau)T(0,)
+}
+precision ~ dgamma(a_s, b_s)
+sigma <- sqrt(pow(precision, -1))
+
+## hyperpriors
+mu ~ dnorm(mu0, sd0)T(0,)
+inv_tau ~ dgamma(a_t, b_t)
+tau <- sqrt(pow(inv_tau, -1))
+
+}
+"
+
+
+
+model_data <- list("rating" = rating, "movie_ind" = movie_ind, "N" = N, "num_groups" = num_groups,"mu0" = 0, "sd0" = 0.001,  "a_s" = 1, "b_s" = 1, "a_t" = 1, "b_t" = 1)
+
+posterior <- run.jags(modelString,
+                      n.chains = 1,
+                      data = model_data,
+                      monitor = c("mu", "tau", "mu_group", "sigma"),
+                      adapt = 1000,
+                      burnin = 5000,
+                      sample = 5000,
+                      thin = 1, 
+                      inits = initsfunction)
+summary(posterior)
+
+plot(posterior, vars = "mu_group")
+plot(posterior, vars = "tau")
+plot(posterior, vars = "sigma")
+
+```
+
+
+#### b)  MCMC Diagnostics
+
+MCMC diagnostic plots can be seen above. Let us focus on the group mean for the first movie, mu_group[1]. The traceplot shows that there are no visible directional trends and that there is good exploration of the parameter space across iterations, which is good. The ACF plot shows that there is no stickiness and that we are mostly drawing independent samples. This is supported by the effective sample size number for mu_group[1] =  2352.  
+The histogram also shows a general normal shape around a mean of 3.5, which seems good because the data for group 1 is bimodal around that point.
+Overall MCMC diagnostics don't alert us to any issues and support our general approach here.
+
+#### c) Shrinkage and Pooling effects plus sources of variation
+
+```{r}
+Ind_Stats = as.data.frame(matrix(NA, num_groups, 2))
+names(Ind_Stats) = c("mean", "sd")
+for (j in 1:num_groups){
+Ind_Stats[j, ] = c(mean(anim_data$rating[anim_data$Group_Number == j]),
+sd(anim_data$rating[anim_data$Group_Number == j]))
+}
+Post_Means <- summary(posterior)[, 4]
+Means1 <- data.frame(Type = "Sample", Value = Ind_Stats$mean)
+Means2 <- data.frame(Type = "Hierarchical", Value =
+Post_Means[3:(4 + num_groups - 2)])
+ggplot(rbind(Means1, Means2), aes(Type, Value)) +
+geom_jitter(width = 0.1, size = 2)+
+theme_grey(base_size = 20, base_family = "")
+```  
+
+A case of complete-pooling would be if ratings for all 8 movies came from the same normal distribution.
+A case of 0 pooling would be if the ratings for all 8 movies came from different normal distributions.
+
+But here we have partial pooling, i.e., ratings for each movie has its own distribution but the parameter(s) (the mean) for these distributions are drawn from the same normal distribution. The sd is shared, so there is complete pooling for that parameter.
+
+Because of this decision, as we can see from the above plot, the means for each of the groups in our model are closer to the overall mean of the shared normal distribution from which the group level $\mu$s are drawn. That mean value is 3.849.  
+
+```{r}
+tau_draws <- as.mcmc(posterior,
+vars = "tau")
+sigma_draws <- as.mcmc(posterior,
+vars = "sigma")
+R = tau_draws^2/(tau_draws^2 + sigma_draws^2)
+df = as.data.frame(R)
+ggplot(df, aes(x=R)) + geom_density() + labs(title="Density of R") +
+theme(plot.title = element_text(size=20)) +
+theme(axis.title = element_text(size=20))
+quantile(R, c(0.025, 0.975))
+```  
+
+As we can see from our density plot of the ratio between our draws of $\tau$ and ($\tau$+$\sigma$), the value of R tends to be low indicating that there isn't much variability between groups and that most of the variability we see in our data is from within-group variance.
+
+
+
+### 2. 
+
+#### a)
+
+We assign vague priors to both $\beta_0$ and $\beta_1$, which are drawn from Normal distributions with mean = 0 and sd = 0.001.
+We also assign a vague prior to $\sigma$, which we parameterize as precision, which in turn comes from a gamma distribution.
+```{r}
+price <- as.vector(house_data$price)
+size <- as.vector(house_data$size)
+N <- length(price)
+
+
+modelString <-"
+model {
+## sampling
+for (i in 1:N){
+price[i] ~ dnorm(beta0 + beta1*size[i], precision)
+}
+## priors
+beta0 ~ dnorm(mu0, g0)
+beta1 ~ dnorm(mu1, g1)
+precision ~ dgamma(a, b)
+sigma <- sqrt(pow(precision, -1))
+}
+"
+the_data <- list("price" = price, "size" = size, "N" = N,
+                 "mu0" = 0, "g0" = 0.0001,
+                 "mu1" = 0, "g1" = 0.0001,
+                 "a" = 1, "b" = 1)
+
+
+posterior <- run.jags(modelString,
+                      n.chains = 1,
+                      data = the_data,
+                      monitor = c("beta0", "beta1", "sigma"),
+                      adapt = 1000,
+                      thin = 50,
+                      burnin = 5000,
+                      sample = 5000)
+
+summary(posterior)
+plot(posterior, vars = c('beta0','beta1','sigma'))
+```
+
+#### b) 
+
+The MCMC diagnostic plots can be seen above. We restrict discussion to paramter $\beta_0$.
+There was initially stickiness in the ACF plot for this parameter and consequently a low effective sample size of draws. this was mitigated by adding a thinning factor of 50, which resulted in a higher number of independent draws and no stickiness in the ACF plot. The traceplot also shows good exploration of the parameter space with no obvious trends, hinting at convergence having been reached (but not confirming it). The histogram shows a normal shape with a high spread as expected due to our vague priors.
+
+### c)
+
+we refer to the posterior mean for both $\beta_0$ and $\beta_1$ for this answer.
+the intercept $\beta_0$, which has a mean value of -52.76 indicates that for a house of size 0 sq ft the expected price is $-52.76. This does not make sense, but neither does a house of size 0 so this intercept is expected given our data.  
+The slope $\beta_1$ has a mean value of 0.1216, which means that for a 1sqft increase in size the expected price of a house increases by $0.1216.
+
+```{r}
+post <- as.mcmc(posterior)
+post_means <- apply(post, 2, mean)
+posterior <- as.data.frame(post)
+
+one_predicted <- function(x){
+lp <- posterior[ , "beta0"] + x * posterior[ , "beta1"]
+y <- rnorm(5000, lp, posterior[, "sigma"])
+data.frame(Value = paste("Size =", x),
+pred_price = y)
+}
+df <- map_df(c(1200, 1600, 2000, 2400), one_predicted)
+df
+ggplot(df, aes(x = pred_price, y = Value)) +
+geom_density_ridges() +
+theme_grey(base_size = 18, base_family = "")
+
+
+df %>% group_by(Value) %>%
+summarize(P05 = quantile(pred_price, 0.05),
+P50 = median(pred_price),
+P95 = quantile(pred_price, 0.95), mean = mean(pred_price))
+df
+```
+
+We use mean predicted price for each size for our predictions. We can see that for 1200, the predicted price is \$92300.For size 1600 the predicted price is \$140000, for size 2000 the predicted price is \$188900, and for size 24000 the predicted price is \$238300.
+The 90% CIs can be read from the table above. Each price value is shown in terms of $1000.
+
+
+

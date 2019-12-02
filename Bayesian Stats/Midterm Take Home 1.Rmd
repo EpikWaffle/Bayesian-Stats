@@ -1,0 +1,168 @@
+---
+title: "Midterm Take Home"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(TeachBayes)
+```
+1.
+
+a.
+```{r}
+###2005
+S = 1000
+prior = rbeta(S, 1, 1)
+
+alpha = 1
+beta = 0
+
+mu = 264/(264+1496)
+n = 264 + 1496
+
+alpha_n = alpha+n/2
+beta_n = beta+1/2*sum((prior-mu)^2)
+
+set.seed(123)
+p2005_post = rgamma(S,shape=alpha_n,rate=beta_n)
+df = as.data.frame(p2005_post)
+
+ggplot(df, aes(p2005_post)) + 
+  geom_density(size = 2, color = "blue") + 
+  labs(title = "Posterior draws of invsigma2_post") +
+  theme_grey(base_size = 30, base_family = "") 
+
+###2015
+
+mu2 = 437/(437+1495)
+n2 = 437 + 1495
+
+alpha_n2 = alpha+n2/2
+beta_n2 = beta+1/2*sum((prior-mu2)^2)
+
+set.seed(123)
+S = 1000
+p2015_post = rgamma(S,shape=alpha_n2,rate=beta_n2)
+df = as.data.frame(p2015_post)
+
+ggplot(df, aes(p2015_post)) + 
+  geom_density(size = 2, color = "blue") + 
+  labs(title = "Posterior draws of invsigma2_post") +
+  theme_grey(base_size = 30, base_family = "") 
+
+```
+b.
+```{r}
+
+diffpost <- setdiff(p2015_post, p2005_post)
+sum(diffpost > 0 | diffpost < 0)/S
+```
+Yes, the proportions did change. The probability that 
+
+c.
+```{r}
+p2005 = 264/(264+1496)
+odds2005 = p2005/(1-p2005)
+odds2005
+
+p2015 = 437/(437+1495)
+odds2015 = p2015/(1-p2015)
+odds2015
+```
+Yes. The odds did change. 
+
+d.
+There is an assumption made that a science and non-science major is mutually exclusive. People who decided to double major, one in science and one not, would be counted twice when calculating the proportion because they show up once under science and once under non-science. This can deflate the proportion of science majors in either year.
+
+
+
+2.
+
+a.
+```{r}
+data <- c(9, 7.5, 7, 8, 5, 6.5, 8.5, 7, 9, 7, 5.5, 6, 8.5, 7.5)
+
+mu_0 = 8
+sigma_0 = 1
+phi_0 = 1/sigma_0^2
+
+ybar = sum(data)/16
+phi = 1/(1.5^2)
+n = 16
+
+mu_n = (phi_0*mu_0+n*ybar*phi)/(phi_0+n*phi)
+sd_n = sqrt(1/(phi_0+n*phi))
+
+set.seed(123)
+S = 1000
+mu_post = rnorm(S, mean = mu_n, sd = sd_n)
+df = as.data.frame(mu_post)
+
+ggplot(df, aes(mu_post)) + 
+  geom_density(size = 2, color = "blue") + 
+  labs(title = "Posterior draws of mu") +
+  theme_grey(base_size = 30, base_family = "") 
+```
+
+b.
+```{r}
+qnorm(c(0.05, 0.95), mean = mu_n, sd = sd_n)
+```
+
+c.
+```{r}
+S = 1000
+sd_sim = (1/phi)+(1/phi_0)
+
+set.seed(123)
+pred_y_sim <- rnorm(S, mu_n, sd_sim)
+df2 = as.data.frame(pred_y_sim)
+
+ggplot(df2, aes(pred_y_sim)) + 
+  geom_density(size = 2, color = "blue") + 
+  labs(title = "Predictive Distribution") +
+  theme_grey(base_size = 30, base_family = "") 
+
+qnorm(c(0.05, 0.95), mean = mu_n, sd = sd_sim)
+```
+
+3.
+
+a.
+```{r}
+data <- c(9, 7.5, 7, 8, 5, 6.5, 8.5, 7, 9, 7, 5.5, 6, 8.5, 7.5)
+
+mu_0 = 8
+sigma_m_0 = 0.1
+phi_m_0 = 1/sigma_m_0^2
+
+ybar = sum(data)/16
+phi = 1/(1.5^2)
+n = 16
+
+mu_m_n = (phi_m_0*mu_0+n*ybar*phi)/(phi_m_0+n*phi)
+sd_m_n = sqrt(1/(phi_m_0+n*phi))
+
+set.seed(123)
+S = 1000
+mu_m_post = rnorm(S, mean = mu_m_n, sd = sd_m_n)
+df3 = as.data.frame(mu_m_post)
+
+ggplot(df3, aes(mu_m_post)) + 
+  geom_density(size = 2, color = "blue") + 
+  labs(title = "Posterior draws of mu") +
+  theme_grey(base_size = 30, base_family = "") 
+```
+
+b.
+```{r}
+qnorm(c(0.05, 0.95), mean = mu_m_n, sd = sd_m_n)
+
+```
+
+c.
+
+Yes, the credible interval is very sensitive to the choice of prior. The range of the 90% credible interval using Mary's prior, is only roughly 0.25. Whereas, with John's prior, it is roughly 1. Mary's interval is also not even entirely within John's interval. There isn't huge overlap between the two ranges. Thus, the credible interval is very different.

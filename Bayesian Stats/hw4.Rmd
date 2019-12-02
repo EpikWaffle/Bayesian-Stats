@@ -1,0 +1,83 @@
+---
+title: "hw4"
+output: html_document
+---
+
+```{r}
+library(ggplot2)
+library(grid)
+library(gridExtra)
+library(plotrix)
+```
+1.
+
+a.
+```{r}
+set.seed(123)
+c_alpha = 70
+c_beta = 10
+d_alpha = 33.3
+d_beta = 3.3
+n = 1000
+
+c_gamma <- rgamma(n, c_alpha, c_beta)
+d_gamma <- rgamma(n, d_alpha, d_beta)
+
+priors = data.frame(A = c_gamma, B = d_gamma)
+ggplot(data=priors, aes(A))+geom_density(color="darkgreen")+geom_density(aes(B), color="blue")
+```
+
+b.
+The mean for Chrystal is around 7. The mean for Danny is around 9. Chrystal is more confident on their "best guess" because her variance is much smaller. 
+
+c.
+```{r}
+qgamma(0.05, c_alpha, c_beta)
+qgamma(0.95, c_alpha, c_beta)
+
+qgamma(0.05, d_alpha, d_beta)
+qgamma(0.95, d_alpha, d_beta)
+```
+d. If she decreases alpha and beta by the same amount, she can keep the same ratio for mean, but would increase her variance. That would reflect her new prior belief.
+
+2.
+a.
+```{r}
+Day = c("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday")
+Number_of_ER_Visits = c(8,6,6,9,8,9,7)    
+data <- data.frame(Day, Number_of_ER_Visits)
+
+y_sum = sum(Number_of_ER_Visits)
+n = 7
+s=1000
+
+set.seed(123)
+c_post <- rgamma(s, c_alpha + y_sum, c_beta + n)
+
+qgamma(0.05, c_alpha + y_sum, c_beta + n)
+qgamma(0.95, c_alpha + y_sum, c_beta + n)
+```
+
+b.
+```{r}
+sum(c_post > 6)/s
+```
+
+c.
+```{r}
+pred_theta <- rgamma(7, c_alpha + y_sum, c_beta + n)
+sum_theta = sum(pred_theta)
+
+pred_delta <- rnbinom(7, size = 70+sum_theta, mu = (70+sum_theta)/(10+n))
+pred_delta
+                     
+```
+
+4. 
+a. The problem with MCMC diagonsitics, compared to Monte Carlo approximation, is that it doesn't draw enough samples from the middle part of the distribution. You can see that the bars are way below the middle curve in Figure 2 where as in Figure 1, it fills out the entire curve. Comparing Figure 3 to Figure 4 shows that MCMC diagonistics switches suddenly from negative mu to postive mu, with only a few values in between.
+
+b.Comparing Figure 5 to Figure 6 shows a similar problem that Figure 3 and Figure 4 showed. Monte Carlo approximation varies between the entire range at all points. MCMC diagnostics stays in a certain range and suddenly switches about halfway through.
+
+c.Figure 7 shows that Monte Carlo approximation has essentially zero autocorrelation. Figure 8 shows that MCMC diagnostics has very large autocorrelation which is a problem. The lack of independent draws correlates to the very large autocorrelation. 
+
+d. Thinning could potentially help. Running the chain for longer would also help with maybe a longer burn in. 

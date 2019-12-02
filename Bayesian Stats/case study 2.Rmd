@@ -1,0 +1,85 @@
+---
+title: "case study 2"
+output: html_document
+---
+
+```{r}
+library(runjags)
+library(TeachBayes)
+library(coda)
+library(dplyr)
+
+setwd("C:/Users/Gorge-PC/Documents")
+dataset <- read.csv("TrueFalseScores.csv", header=T)
+```
+
+```{r}
+dataset.guess <- dataset %>% filter(Student <= 5)
+
+dataset.smart<- dataset %>% filter(Student >= 6)
+
+mean(dataset.guess$Score)/40
+
+mean(dataset.smart$Score)/40
+
+plot(dataset[1:15, 1:2])
+```
+
+```{r}
+
+dataset$index <- c(rep(1,5), rep(2,10))
+
+
+## write the model
+modelString <-"
+model {
+
+## likelihood
+for (i in 1:N){
+y[i] ~ dbinom(p_j[index[i]], 40)
+}
+
+## priors
+for (j in 1:J){
+p_j[j] ~ dbeta(alpha, beta)
+}
+
+## hyperpriors
+alpha ~ dgamma(a, b)
+beta ~ dgamma(c, d)
+}
+"
+
+y = dataset$Score        
+index = dataset$index
+N = length(y) 
+J = length(unique(index))
+
+initsfunction <- function(chain){
+  .RNG.seed <- c(1,2)[chain]
+  .RNG.name <- c("base::Super-Duper",
+                 "base::Wichmann-Hill")[chain]
+  return(list(.RNG.seed=.RNG.seed,
+              .RNG.name=.RNG.name))
+}
+
+the_data <- list("y" = y, "index" = index, "N" = N, "J" = J,
+                 "a" = 1, "b" = 1,
+                 "c" = 1, "d" = 1)
+
+posterior <- run.jags(modelString,
+                      n.chains = 1,
+                      data = the_data,
+                      monitor = c("p_j","alpha", "beta"),
+                      adapt = 1000,
+                      burnin = 5000,
+                      sample = 5000,
+                      thin = 10, 
+                      inits = initsfunction)
+
+options(digits = 3)
+summary(posterior)
+
+plot(posterior)
+
+```

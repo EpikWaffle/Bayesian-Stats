@@ -1,0 +1,100 @@
+---
+title: "case1"
+output: html_document
+---
+
+
+
+# Question 1)
+
+The marriage rates were not the same before, during or after WW2. The mean marriage rates before WW2 was 8,000, during the war the marriage rates were down to 6,142
+
+```{r include=TRUE, message=FALSE, warning=FALSE}
+library(runjags)
+library(TeachBayes)
+library(coda)
+library(dplyr)
+
+setwd("C:/Users/Gorge-PC/Documents")
+dataset <- read.csv("ItalyMarriageRates.csv", header=T)
+
+#During WW2: 1939-1945
+
+dataset.ww2 <- dataset %>% filter(Year >= 1939) %>% filter(Year <= 1945)
+
+
+dataset.before.ww2<- dataset %>% filter(Year < 1939)
+
+
+dataset.after.ww2<- dataset %>% filter(Year > 1945)
+
+
+#Before WW2
+mean(dataset.before.ww2$Rates..per.1000.)
+
+#During WW2
+mean(dataset.ww2$Rates..per.1000.)
+
+#After WW2
+mean(dataset.after.ww2$Rates..per.1000.)
+
+
+plot(dataset)
+
+dataset$t_frame <- c(rep(1,4), rep(2,6), rep(3,6))
+
+```
+
+```{r}
+## write the model
+modelString <-"
+model {
+
+## likelihood
+for (i in 1:N){
+y[i] ~ dpois(mu_j[t_frame[i]])
+}
+
+## priors
+for (j in 1:J){
+mu_j[j] ~ dgamma(alpha, beta)
+}
+
+## hyperpriors
+alpha ~ dgamma(a, b)
+beta ~ dgamma(c, d)
+}
+"
+y = dataset$Rates..per.1000.        
+t_frame = dataset$t_frame
+N = length(y) 
+J = length(unique(t_frame))
+
+initsfunction <- function(chain){
+  .RNG.seed <- c(1,2)[chain]
+  .RNG.name <- c("base::Super-Duper",
+                 "base::Wichmann-Hill")[chain]
+  return(list(.RNG.seed=.RNG.seed,
+              .RNG.name=.RNG.name))
+}
+
+the_data <- list("y" = y, "t_frame" = t_frame, "N" = N, "J" = J, 
+                 "a" = 1, "b" = 1,
+                 "c" = 1, "d" = 1)
+
+posterior <- run.jags(modelString,
+                      n.chains = 1,
+                      data = the_data,
+                      monitor = c("mu_j","alpha", "beta"),
+                      adapt = 1000,
+                      burnin = 5000,
+                      sample = 5000,
+                      thin = 10, 
+                      inits = initsfunction)
+
+options(digits = 3)
+summary(posterior)
+
+plot(posterior)
+
+```

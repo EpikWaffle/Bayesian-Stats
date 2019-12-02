@@ -1,0 +1,195 @@
+---
+title: "take home midterm 2"
+output: html_document
+---
+
+```{r}
+library(runjags)
+library(coda)
+library(ggplot2)
+library(tidyverse)
+library(ggridges)
+
+setwd("C:/Users/Gorge-PC/Documents")
+
+animation_data <- read.csv("2010_animation_ratings.csv")
+house_data<- read.csv("house_prices.csv")
+```
+
+1.
+a.
+A normal distributon should fit the data well. As for priors, each prior has a different mean, so we should give each movie index its own prior, but they can share a standard deviation. Each mean would be given by a truncated normal distribution, because ratings can't be negative, where mean = mu and precision = tau. Mu and tau are assigned priors. 
+Mu would be drawn from a truncated normal distrbution with mean = a and standard deviation = b. 
+Tau would be drawn from a gamma distribution with alpha = c and beta = d. 
+a, b, c, and d are fixed values. 
+
+Sigma is also assigned a vague prior which would be a gamma distribution with alpha = e and beta = f. 
+
+```{r}
+movie_ind<-as.factor(animation_data$Group_Number)
+rating<- animation_data$rating
+N<- length(rating)
+num_groups<- length(unique(animation_data$Group_Number))
+
+
+ggplot(data= data.frame(movie_ind= movie_ind, rating = rating), aes(rating, color= movie_ind)) + geom_density() 
+
+
+modelString <-"
+
+
+model {
+
+## likelihood
+for (i in 1:N){
+rating[i] ~ dnorm(mu_group[movie_ind[i]], precision)T(0,)
+}
+
+## priors
+for (j in 1:num_groups){
+mu_group[j] ~ dnorm(mu, inv_tau)T(0,)
+}
+precision ~ dgamma(e, f)
+sigma <- sqrt(pow(precision, -1))
+
+## hyperpriors
+mu ~ dnorm(a, b)T(0,)
+inv_tau ~ dgamma(c, d)
+tau <- sqrt(pow(inv_tau, -1))
+
+}
+"
+
+
+model_data <- list("rating" = rating, "movie_ind" = movie_ind, "N" = N, "num_groups" = num_groups,"a" = 0, "b" = 0.001,  "e" = 1, "f" = 1, "c" = 1, "d" = 1)
+
+posterior <- run.jags(modelString,
+                      n.chains = 1,
+                      data = model_data,
+                      monitor = c("mu", "tau", "mu_group", "sigma"),
+                      adapt = 1000,
+                      burnin = 5000,
+                      sample = 5000,
+                      thin = 1)
+summary(posterior)
+
+plot(posterior, vars = "mu_group")
+plot(posterior, vars = "tau")
+plot(posterior, vars = "sigma")
+
+```
+
+b.
+MCMC diagonstics don't show many problems. A lot of the variables have relatively small autocorellations and all of the traceplots look like they explore the full parameter space. mu_group[5] has one of the larger autocorrelations out of them. Even then, autocorrelation is still close to 0 after a little bit. 
+
+c.
+```{r}
+Ind_Stats = as.data.frame(matrix(NA, num_groups, 2))
+names(Ind_Stats) = c("mean", "sd")
+for (j in 1:num_groups){
+Ind_Stats[j, ] = c(mean(animation_data$rating[animation_data$Group_Number == j]),
+sd(animation_data$rating[animation_data$Group_Number == j]))
+}
+Post_Means <- summary(posterior)[, 4]
+Means1 <- data.frame(Type = "Sample", Value = Ind_Stats$mean)
+Means2 <- data.frame(Type = "Hierarchical", Value =
+Post_Means[3:(4 + num_groups - 2)])
+ggplot(rbind(Means1, Means2), aes(Type, Value)) +
+geom_jitter(width = 0.1, size = 2)+
+theme_grey(base_size = 20, base_family = "")
+```  
+
+Complete-pooling refers to when all of the priors come from the same normal distribution. Zero pooling refers to when all of the priors come from different normal distributions. In this case there is partial pooling. Because they share a sigma there is some pooling, but the means came from different distributions so there wasn't complete pooling. The means are much closer together in our hierarchical model compared to the sample. 
+
+```{r}
+tau_draws <- as.mcmc(posterior,
+vars = "tau")
+sigma_draws <- as.mcmc(posterior,
+vars = "sigma")
+R = tau_draws^2/(tau_draws^2 + sigma_draws^2)
+df = as.data.frame(R)
+ggplot(df, aes(x=R)) + geom_density() + labs(title="Density of R") +
+theme(plot.title = element_text(size=20)) +
+theme(axis.title = element_text(size=20))
+quantile(R, c(0.025, 0.975))
+```  
+
+This graph shows that there isn't much variability as the graph is skewed left. 
+
+2. 
+a.
+
+```{r}
+
+modelString <-"
+model {
+## sampling
+for (i in 1:N){
+y[i] ~ dnorm(beta0 + beta1*size[i], precision)
+}
+## priors
+beta0 ~ dnorm(mu0, g0)
+beta1 ~ dnorm(mu1, g1)
+precision ~ dgamma(a, b)
+sigma <- sqrt(pow(precision, -1))
+}
+"
+
+y = house_data$price
+size = house_data$size
+N = length(y)
+
+the_data <- list("y" = y, "size" = size, "N" = N,
+                 "mu0" = 0, "g0" = 0.0001,
+                 "mu1" = 0, "g1" = 0.0001,
+                 "a" = 1, "b" = 1)
+
+
+posterior <- run.jags(modelString,
+                      n.chains = 1,
+                      data = the_data,
+                      monitor = c("beta0", "beta1", "sigma"),
+                      adapt = 1000,
+                      thin = 25,
+                      burnin = 5000,
+                      sample = 5000)
+
+summary(posterior)
+plot(posterior, vars = c('beta0','beta1','sigma'))
+```
+
+Beta0 and beta1 are given priors drawn from a normal distribution. Mu is set to 0 and standard deviation to 0.0001 because those are vague prior values. Sigma is also assigned a vague prior, precision which is drawn from a gamma distribution where a and b are set to 1. 
+
+b. 
+
+MCMC diagnostics show relatively good results. Autocorrelation was really high at first, especially with beta0 and beta1. After setting thinning to 25, the auto correlations are much lower. The traceplots look like they fully explore the parameter space. Overall, after increasing thinning, it seems to have converged and looks pretty good otherwise.
+
+c.
+
+Beta0 has an expected value of about -53.52. This indicates that a house that has a size of 0 sqft will have an expected price of \$-53.52. This is just the intercept of the data and doesn't really make sense until we reach sizes that are more acceptable for a house. Beta1 has an expected value of about 0.121 which means that for every increase in 1sqft of the size of the house, we can expect the price to increase by \$0.121.
+
+d.
+```{r}
+post = as.mcmc(posterior)
+post_means = apply(post, 2, mean)
+posterior = as.data.frame(post)
+
+one_predicted <- function(x){
+lp <- posterior[ , "beta0"] + x * posterior[ , "beta1"]
+y <- rnorm(5000, lp, posterior[, "sigma"])
+data.frame(Value = paste("Size =", x),
+pred_price = y)
+}
+df <- map_df(c(1200, 1600, 2000, 2400), one_predicted)
+ggplot(df, aes(x = pred_price, y = Value)) +
+geom_density_ridges() +
+theme_grey(base_size = 18, base_family = "")
+
+
+df %>% group_by(Value) %>%
+summarize(P05 = quantile(pred_price, 0.05),
+P50 = median(pred_price),
+P95 = quantile(pred_price, 0.95), mean = mean(pred_price))
+```
+
+The predicted selling price for houses of size 1.2, 1.6, 2.0, and 2.4 are \$93045, \$140079, \$187380, and \$238891 respectively. The 90% credible interval for a house of size 1.2 is between \$13092 and \$172408. For a house of size 1.6 it's between \$63043 and \$219263. For a house of size 2.0, it's between \$113275 and \$265952. For a house of size 2.4 it's between \$161713 and \$238861. 
